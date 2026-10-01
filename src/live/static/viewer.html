@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live test view</title>
+<!-- Single static page: vanilla JS, no CDN, no build step.
+     All dynamic text is inserted with textContent (page titles/URLs come from untrusted sites). -->
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--text:#1f2328;--muted:#656d76;--line:#d8dee4;--accent:#0969da;
+  --ok:#1a7f37;--bad:#cf222e;--warn:#9a6700;--hl:#ff3b30}
+@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--panel:#161b22;--text:#e6edf3;--muted:#8b949e;
+  --line:#30363d;--accent:#58a6ff;--ok:#3fb950;--bad:#f85149;--warn:#d29922;--hl:#ff6b61}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,sans-serif;
+  display:flex;flex-direction:column;height:100vh}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:8px 14px;
+  display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+header h1{font-size:15px;margin:0}
+.stat{color:var(--muted)} .stat b{color:var(--text);font-weight:600}
+.pill{padding:1px 8px;border-radius:10px;font-size:12px;border:1px solid var(--line)}
+.queued{color:var(--muted)} .running{color:var(--accent);border-color:var(--accent)}
+.passed,.ok{color:var(--ok)} .failed,.error,.bad{color:var(--bad)} .paused{color:var(--warn)}
+.controls{margin-left:auto;display:flex;gap:6px;align-items:center}
+button,select{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;
+  padding:4px 10px;font:inherit;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)} button:disabled{opacity:.45;cursor:default}
+button.danger{color:var(--bad)}
+main{flex:1;min-height:0;display:grid;grid-template-columns:200px minmax(0,1.4fr) minmax(280px,1fr);gap:10px;padding:10px}
+main.single{grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr)} main.single #sidebar{display:none}
+section,aside{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-height:0;overflow:auto}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0;padding:8px 12px;
+  border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:1}
+#sidebar ul{list-style:none;margin:0;padding:0}
+#sidebar li{padding:8px 12px;border-bottom:1px solid var(--line);cursor:pointer;display:flex;
+  justify-content:space-between;gap:8px}
+#sidebar li.sel{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+#stage{display:flex;flex-direction:column;overflow:auto}
+#urlbar{padding:6px 12px;border-bottom:1px solid var(--line);display:flex;gap:10px;white-space:nowrap}
+#urlbar span{overflow:hidden;text-overflow:ellipsis} #pageUrl{color:var(--accent)} #pageTitle{color:var(--muted)}
+#framewrap{padding:10px;text-align:center}
+#framebox{overflow:hidden;position:relative;display:inline-block;max-width:100%;line-height:0;background:#000}
+#frame{max-width:100%;max-height:60vh;display:block}
+#hl{position:absolute;border:3px solid var(--hl);border-radius:4px;box-shadow:0 0 0 9999px rgba(0,0,0,.18);
+  pointer-events:none;display:none}
+#label{position:absolute;left:8px;top:8px;background:var(--hl);color:#fff;padding:3px 9px;border-radius:5px;
+  font:600 12px/1.3 system-ui;display:none;max-width:90%;text-align:left;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+#empty{color:var(--muted);padding:40px 10px}
+.assert{padding:8px 12px;border-bottom:1px solid var(--line)} .assert .why{color:var(--muted);display:block}
+.step{border-bottom:1px solid var(--line);padding:8px 12px}
+.step .thought{color:var(--muted);margin:2px 0 6px}
+.call{display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;font-family:ui-monospace,monospace;font-size:12px}
+.call .pill{justify-self:start}
+.call .args{grid-column:2/4;color:var(--muted);overflow-wrap:anywhere}
+#notice{padding:6px 14px;background:color-mix(in srgb,var(--warn) 18%,transparent);display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Live test view</h1>
+  <span class="stat">Test <b id="hTest">-</b> <span id="hStatus" class="pill queued">idle</span></span>
+  <span class="stat">Elapsed <b id="hElapsed">0:00</b></span>
+  <span class="stat">Steps <b id="hSteps">0</b></span>
+  <span class="stat">Tokens <b id="hTokens">0 in / 0 out</b></span>
+  <span id="conn" class="pill queued">connecting</span>
+  <div class="controls" id="liveControls">
+    <button id="bPause">Pause</button><button id="bResume">Resume</button>
+    <button id="bStep">Step once</button><button id="bStop" class="danger">Stop</button>
+  </div>
+  <div class="controls" id="replayControls" hidden>
+    <button id="rPlay">Pause</button>
+    <label class="stat">Speed <select id="rSpeed"><option>0.5</option><option selected>1</option>
+      <option>2</option><option>4</option><option>8</option></select>x</label>
+    <button id="rRestart">Restart</button>
+  </div>
+</header>
+<div id="notice"></div>
+<main id="main">
+  <aside id="sidebar"><h2>Tests</h2><ul id="testList"></ul></aside>
+  <section id="stage">
+    <h2>Browser</h2>
+    <div id="urlbar"><span id="pageUrl">-</span><span id="pageTitle"></span></div>
+    <div id="framewrap">
+      <div id="framebox" hidden><img id="frame" alt="live browser frame"><div id="hl"></div><div id="label"></div></div>
+      <div id="empty">Waiting for the first frame…</div>
+    </div>
+    <h2>Assertions</h2>
+    <div id="assertions"></div>
+  </section>
+  <section><h2>Step timeline</h2><div id="timeline"></div></section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const TOKEN = params.get("token") || "";
+let MODE = "live", es = null, finished = false, following = true, selected = null;
+let tests = new Map();            // name -> per-test state (and its own DOM containers)
+let runInfo = null;
+
+function fmtTime(s){ s = Math.max(0, Math.floor(s)); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+function el(tag, cls, text){ const e = document.createElement(tag); if(cls) e.className = cls; if(text!=null) e.textContent = text; return e; }
+function short(s, n){ s = String(s||""); return s.length > n ? s.slice(0, n-1) + "…" : s; }
+
+function ensureTest(name){
+  if(tests.has(name)) return tests.get(name);
+  const t = {name, status:"queued", steps:new Map(), calls:new Map(), asserts:[], expected:[], frame:null,
+    shot:null, lastFrameAt:0, url:"", title:"", startTs:0, endTs:0, stepCount:0, tin:0, tout:0,
+    highlight:null, timelineEl:el("div"), assertEl:el("div")};
+  t.timelineEl.hidden = true; t.assertEl.hidden = true;
+  $("timeline").appendChild(t.timelineEl); $("assertions").appendChild(t.assertEl);
+  const li = el("li"); li.append(el("span",null,name), el("span","pill queued","queued"));
+  li.onclick = () => { following = false; select(name); };
+  $("testList").appendChild(li); t.li = li;
+  tests.set(name, t);
+  $("main").classList.toggle("single", tests.size <= 1);
+  return t;
+}
+function setStatus(t, status){
+  t.status = status; const pill = t.li.lastChild; pill.textContent = status; pill.className = "pill " + status;
+  if(selected === t.name) renderHeader();
+}
+function select(name){
+  selected = name;
+  for(const [n,t] of tests){ t.timelineEl.hidden = t.assertEl.hidden = n !== name; t.li.classList.toggle("sel", n===name); }
+  const t = tests.get(name);
+  renderFrame(t); renderUrl(t); renderHeader(); placeOverlay();
+}
+function renderHeader(){
+  const t = tests.get(selected); if(!t) return;
+  $("hTest").textContent = t.name;
+  const s = $("hStatus"); s.textContent = t.status; s.className = "pill " + t.status;
+  $("hSteps").textContent = t.stepCount;
+  $("hTokens").textContent = t.tin + " in / " + t.tout + " out";
+}
+function renderUrl(t){ $("pageUrl").textContent = t.url || "-"; $("pageTitle").textContent = t.title || ""; }
+function renderFrame(t){
+  const src = t && (t.frame ? "data:"+t.frame.mime+";base64,"+t.frame.data : t.shot);
+  $("framebox").hidden = !src; $("empty").hidden = !!src;
+  if(src) $("frame").src = src;
+}
+function placeOverlay(){
+  const t = tests.get(selected), hl = $("hl"), lab = $("label");
+  const h = t && t.highlight;
+  lab.style.display = h ? "block" : "none"; hl.style.display = "none";
+  if(!h) return;
+  lab.textContent = h.label;
+  const r = h.target && h.target.rect, vp = h.target && h.target.viewport, img = $("frame");
+  if(r && vp && vp[0] && img.clientWidth){
+    const k = img.clientWidth / vp[0];
+    Object.assign(hl.style, {display:"block", left:r[0]*k+"px", top:r[1]*k+"px",
+      width:Math.max(r[2]*k,6)+"px", height:Math.max(r[3]*k,6)+"px"});
+  }
+}
+$("frame").addEventListener("load", placeOverlay);
+window.addEventListener("resize", placeOverlay);
+
+function stepBlock(t, idx){
+  if(t.steps.has(idx)) return t.steps.get(idx);
+  const box = el("div","step"), head = el("div",null,"Step "+idx), thought = el("div","thought");
+  head.style.fontWeight = "600"; box.append(head, thought);
+  t.timelineEl.appendChild(box);
+  const s = {box, thought}; t.steps.set(idx, s);
+  box.scrollIntoView({block:"nearest"});
+  return s;
+}
+
+function handle(ev){
+  if(ev.type === "hello"){ MODE = ev.mode; resetAll(); return; }
+  if(ev.type === "reset"){ resetAll(); return; }
+  if(ev.type === "run_started"){
+    runInfo = ev; ev.tests.forEach(n => ensureTest(n));
+    if(!selected && ev.tests.length) select(ev.tests[0]);
+    return;
+  }
+  if(ev.type === "run_finished"){ finished = true; if(MODE==="live" && es) es.close(); setConn("finished","passed");
+    if(ev.stopped) notice("Run stopped by user."); return; }
+  if(ev.type === "error"){ notice((ev.fatal?"Error: ":"Warning: ")+ev.message); return; }
+  if(ev.type === "control_state"){ setConn(ev.state, ev.state==="running"?"running":"paused"); return; }
+  if(!ev.test) return;
+  const t = ensureTest(ev.test);
+  switch(ev.type){
+    case "test_started":
+      t.startTs = ev.ts; t.expected = ev.expected || []; setStatus(t,"running");
+      t.assertEl.replaceChildren();
+      t.expected.forEach((o,i) => { const row = el("div","assert"); row.append(el("span","pill queued","pending"), document.createTextNode(" "+o), el("span","why")); t.assertEl.appendChild(row); t.asserts[i] = row; });
+      if(following || !selected) select(t.name);
+      break;
+    case "step_started": t.stepCount = ev.index; stepBlock(t, ev.index); if(selected===t.name) renderHeader(); break;
+    case "llm_thought": {
+      const s = stepBlock(t, ev.step); s.thought.textContent = short(ev.text, 400);
+      t.tin = ev.tokens_in; t.tout = ev.tokens_out; if(selected===t.name) renderHeader(); break; }
+    case "tool_call": {
+      const s = stepBlock(t, ev.step), row = el("div","call");
+      const status = el("span","pill running","running"), dur = el("span","stat","");
+      row.append(el("b",null,ev.name), status, dur);
+      const a = el("div","args",short(JSON.stringify(ev.arguments), 240)); row.append(a);
+      s.box.appendChild(row); t.calls.set(ev.call_id, {status, dur});
+      t.highlight = {label: ev.label || ev.action, target: ev.target};
+      if(selected===t.name) placeOverlay();
+      break; }
+    case "tool_result": {
+      const c = t.calls.get(ev.call_id);
+      if(c){ c.status.textContent = ev.is_error ? "error" : "ok"; c.status.className = "pill " + (ev.is_error?"error":"ok");
+        c.dur.textContent = ev.duration_s.toFixed(2)+"s"; c.status.title = ev.preview; }
+      setTimeout(() => { t.highlight = null; if(selected===t.name) placeOverlay(); }, 900);
+      break; }
+    case "page_snapshot": t.url = ev.url || t.url; t.title = ev.title || t.title; if(selected===t.name) renderUrl(t); break;
+    case "frame":
+      t.frame = ev; t.lastFrameAt = Date.now(); if(ev.url) t.url = ev.url; if(ev.title) t.title = ev.title;
+      if(selected===t.name){ renderFrame(t); renderUrl(t); }
+      break;
+    case "screenshot": {
+      // Saved key frame. Used as the picture in replay, or in live mode when no live frames arrive.
+      t.shot = "/files/" + ev.path.split("/").map(encodeURIComponent).join("/") + "?token=" + encodeURIComponent(TOKEN);
+      if(MODE==="replay"){ t.frame = null; }
+      if(ev.url) t.url = ev.url; if(ev.title) t.title = ev.title;
+      if(selected===t.name && (MODE==="replay" || Date.now()-t.lastFrameAt > 2000)){ renderFrame(t); renderUrl(t); }
+      break; }
+    case "assertion_result": {
+      let row = t.asserts[ev.index];
+      if(!row){ row = el("div","assert"); row.append(el("span"), document.createTextNode(""), el("span","why")); t.assertEl.appendChild(row); t.asserts[ev.index] = row; }
+      row.replaceChildren(el("span","pill "+(ev.passed?"passed":"failed"), ev.passed?"PASS":"FAIL"),
+        document.createTextNode(" "+ev.outcome), el("span","why",ev.reason));
+      break; }
+    case "test_finished":
+      t.endTs = ev.ts; t.tin = ev.tokens_in; t.tout = ev.tokens_out;
+      setStatus(t, ev.status); if(ev.error) notice(t.name+": "+ev.error);
+      break;
+  }
+}
+function resetAll(){
+  tests.forEach(t => { t.timelineEl.remove(); t.assertEl.remove(); });
+  tests = new Map(); selected = null; following = true; finished = false;
+  $("testList").replaceChildren(); renderFrame(null); $("pageUrl").textContent = "-"; $("pageTitle").textContent = "";
+  $("hTest").textContent = "-"; $("notice").style.display = "none";
+  $("liveControls").hidden = MODE === "replay"; $("replayControls").hidden = MODE !== "replay";
+  document.title = MODE === "replay" ? "Replay - test run" : "Live test view";
+}
+function notice(msg){ const n = $("notice"); n.textContent = msg; n.style.display = "block"; }
+function setConn(text, cls){ const c = $("conn"); c.textContent = text; c.className = "pill " + cls; }
+
+function connect(){
+  es = new EventSource("/events?token=" + encodeURIComponent(TOKEN));
+  es.onopen = () => setConn("connected","running");
+  es.onmessage = m => { try { handle(JSON.parse(m.data)); } catch(e){ console.error(e); } };
+  es.onerror = () => { if(!finished) setConn("disconnected","failed"); };
+}
+async function control(action, payload){
+  try {
+    await fetch("/control/" + action, {method:"POST", headers:{"X-Live-Token":TOKEN,"Content-Type":"application/json"},
+      body: JSON.stringify(payload || {})});
+  } catch(e){ notice("Control request failed: " + e); }
+}
+$("bPause").onclick = () => control("pause");   $("bResume").onclick = () => control("resume");
+$("bStep").onclick = () => control("step");     $("bStop").onclick = () => { if(confirm("Stop the run?")) control("stop"); };
+let playing = true;
+$("rPlay").onclick = () => { playing = !playing; $("rPlay").textContent = playing ? "Pause" : "Play"; control(playing ? "resume" : "pause"); };
+$("rSpeed").onchange = e => control("speed", {speed: parseFloat(e.target.value)});
+$("rRestart").onclick = () => { playing = true; $("rPlay").textContent = "Pause"; control("restart"); };
+
+setInterval(() => {   // elapsed clock: wall time while live, event time in replay
+  const t = tests.get(selected); if(!t || !t.startTs) return;
+  const end = t.endTs || (MODE === "live" ? Date.now()/1000 : (t.lastTs || t.startTs));
+  $("hElapsed").textContent = fmtTime(end - t.startTs);
+}, 250);
+const _handle = handle;
+handle = function(ev){ const t = ev.test && tests.get(ev.test); if(t) t.lastTs = ev.ts; _handle(ev); };
+connect();
+</script>
+</body>
+</html>

@@ -67,3 +67,33 @@ class SafetyGuard:
                             "destructive actions are disabled. Do not perform it; "
                             "finish the test and report what you observed instead.")
         return None
+
+
+# --- masking of typed values --------------------------------------------------
+SENSITIVE_FIELD = re.compile(r"pass(word|wd|code)|secret|token|api[-_ ]?key|\bpin\b|cvv|otp",
+                             re.IGNORECASE)
+MASK = "••••"
+
+
+def sanitize_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """Copy of tool arguments that is safe to display or persist.
+
+    Text typed into a field whose description looks sensitive (password, token, ...)
+    is replaced by a mask, so typed secrets are never streamed even when they were
+    not supplied through an env placeholder. Placeholders such as ``{{env:NAME}}``
+    are kept as is: they carry no secret.
+    """
+    out = dict(args)
+    described = " ".join(str(args.get(k, "")) for k in ("element", "target", "name", "label"))
+    if "text" in out and SENSITIVE_FIELD.search(described):
+        out["text"] = MASK
+    fields = out.get("fields")
+    if isinstance(fields, list):  # browser_fill_form
+        clean = []
+        for f in fields:
+            if isinstance(f, dict) and (SENSITIVE_FIELD.search(str(f.get("name", "")))
+                                        or str(f.get("type", "")).lower() == "password"):
+                f = {**f, "value": MASK}
+            clean.append(f)
+        out["fields"] = clean
+    return out

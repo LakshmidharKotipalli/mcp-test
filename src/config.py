@@ -5,7 +5,7 @@ import os
 import shlex
 from pathlib import Path
 
-from .models import AppConfig, LLMConfig, MCPConfig, SafetyConfig
+from .models import AppConfig, LiveConfig, LLMConfig, MCPConfig, SafetyConfig
 
 
 def load_env_file(path: str | Path = ".env") -> None:
@@ -42,7 +42,20 @@ def config_from_env() -> AppConfig:
         mcp.command = e("MCP_COMMAND", mcp.command)
     if e("MCP_ARGS"):
         mcp.args = shlex.split(e("MCP_ARGS", ""))
+    live = LiveConfig(
+        mode=e("LIVE_MODE") or "off",   # type: ignore[arg-type]
+        host=e("LIVE_HOST", "127.0.0.1"),
+        port=int(e("LIVE_PORT", "0") or 0),
+        fps=float(e("LIVE_FPS", "5")),
+        max_width=int(e("LIVE_MAX_WIDTH", "1280")),
+        max_height=int(e("LIVE_MAX_HEIGHT", "800")),
+        quality=int(e("LIVE_QUALITY", "60")),
+        max_frame_kb=int(e("LIVE_MAX_FRAME_KB", "600")),
+        slow_mo_ms=int(e("SLOW_MO", "0") or 0),
+        browser_path=e("BROWSER_PATH", ""),
+    )
     return AppConfig(
+        live=live,
         llm=LLMConfig(
             base_url=e("LLM_BASE_URL", ""),
             api_key=e("LLM_API_KEY", ""),

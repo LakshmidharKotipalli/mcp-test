@@ -31,8 +31,26 @@ class MCPConfig(BaseModel):
     headless: bool = True
 
 
+class LiveConfig(BaseModel):
+    """Live view settings. Everything is overridable via env vars or CLI flags."""
+    enabled: bool = False                 # start the local web viewer
+    mode: Literal["cdp", "screenshot", "off"] = "off"   # how live frames are produced
+    host: str = "127.0.0.1"               # viewer bind address (localhost unless overridden)
+    port: int = 0                         # 0 = pick any free port
+    open_viewer: bool = False             # open the viewer in the default browser
+    fps: float = 5.0                      # max frames per second pushed to viewers
+    max_width: int = 1280                 # screencast frame size cap
+    max_height: int = 800
+    quality: int = 60                     # JPEG quality for screencast frames
+    max_frame_kb: int = 600               # frames larger than this are dropped
+    slow_mo_ms: int = 0                   # delay after each action
+    record: bool = False                  # save video + Playwright trace per test
+    browser_path: str = ""                # Chrome/Chromium executable for cdp mode (auto-detected if empty)
+
+
 class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    live: LiveConfig = Field(default_factory=LiveConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     output_dir: str = "results"
@@ -102,6 +120,7 @@ class TestResult(BaseModel):
     usage: TokenUsage = Field(default_factory=TokenUsage)
     duration_s: float = 0.0
     screenshot_path: str | None = None
+    recordings: list[str] = Field(default_factory=list)   # video/trace files, relative to run dir
     error: str | None = None
 
     @property

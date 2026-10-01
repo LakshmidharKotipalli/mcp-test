@@ -6,6 +6,7 @@ import re
 
 from pydantic import ValidationError
 
+from .events import AssertionResult, EventBus
 from .llm.base import LLMBackend, Message
 from .models import TokenUsage, Verdict
 from .secrets import SecretStore
@@ -40,8 +41,17 @@ def _parse(text: str, outcomes: list[str]) -> list[Verdict]:
     return verdicts
 
 
+def _publish(bus: EventBus | None, verdicts: list[Verdict]) -> list[Verdict]:
+    """Announce each verdict so viewers can fill in the assertion panel."""
+    if bus:
+        for i, v in enumerate(verdicts):
+            bus.emit(AssertionResult(index=i, outcome=v.outcome, passed=v.passed, reason=v.reason))
+    return verdicts
+
+
 async def verify(llm: LLMBackend, outcomes: list[str], snapshot: str, agent_summary: str,
-                 secrets: SecretStore, usage: TokenUsage) -> list[Verdict]:
+                 secrets: SecretStore, usage: TokenUsage,
+                 bus: EventBus | None = None) -> list[Verdict]:
     if not outcomes:
         return []
     snap = secrets.redact(snapshot)[:MAX_SNAPSHOT_CHARS]
@@ -54,11 +64,12 @@ async def verify(llm: LLMBackend, outcomes: list[str], snapshot: str, agent_summ
         resp = await llm.complete(SYSTEM, messages, [])
         usage.add(resp.usage.input_tokens, resp.usage.output_tokens)
         try:
-            return _parse(resp.text, outcomes)
+            return _publish(bus, _parse(resp.text, outcomes))
         except (ValueError, ValidationError, json.JSONDecodeError) as exc:
             last_error = str(exc)
             messages += [Message("assistant", resp.text),
                          Message("user", f"Invalid response ({last_error}). "
                                          "Reply with ONLY the JSON array.")]
-    return [Verdict(outcome=o, passed=False, reason=f"Judge output unparseable: {last_error}")
-            for o in outcomes]
+    return _publish(bus, [Verdict(outcome=o, passed=False,
+                                  reason=f"Judge output unparseable: {last_error}")
+                          for o in outcomes])
