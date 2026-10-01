@@ -1,0 +1,44 @@
+# Template suite. Every value is a placeholder; nothing here targets a real site.
+# Run (after exporting the variables referenced below, or putting them in .env):
+#   python main.py --suite examples/suite.template.yaml --dry-run   # validate only
+#   python main.py --suite examples/suite.template.yaml             # real run
+
+# Optional. Hostnames the browser may visit. Empty/omitted = only each test's start
+# URL host. The CLI flag --allow-domain overrides this.
+allowed_domains: []        # e.g. ["<ALLOWED_DOMAIN>"]
+
+tests:
+  # ---------------------------------------------------------------- 1. login flow
+  - name: login-flow                  # unique label; used for result file names
+    start_url: "${TARGET_URL}"        # ${VAR} is expanded from the environment
+    steps:                            # plain-English instructions for the agent
+      - "Open the login page"
+      - "Enter {{env:TEST_USER}} in the username field"        # {{env:NAME}} = secret from env,
+      - "Enter {{env:TEST_PASSWORD}} in the password field"    # never shown to the LLM or logs
+      - "Submit the login form"
+    expected:                         # plain-English assertions judged on the final snapshot
+      - "The page shows a signed-in state (e.g. a dashboard or account menu)"
+      - "No login error message is visible"
+
+  # ---------------------------------------------------------- 2. form submission
+  - name: form-submission
+    start_url: "${TARGET_URL}"
+    steps:
+      - "Navigate to the page containing the <FORM_DESCRIPTION> form"
+      - "Fill the <FIELD_1> field with <TEST_VALUE_1>"
+      - "Fill the <FIELD_2> field with <TEST_VALUE_2>"
+      - "Submit the form"
+    expected:
+      - "A success or confirmation message is displayed"
+      - "No validation errors are shown"
+
+  # ----------------------------------------------------------- 3. navigation check
+  - name: navigation-check
+    start_url: "${TARGET_URL}"
+    goal: "Verify the main navigation links lead to working pages"   # alternative to steps
+    steps:
+      - "Click the <NAV_ITEM_1> link in the main navigation"
+      - "Go back and click the <NAV_ITEM_2> link"
+    expected:
+      - "The <NAV_ITEM_1> page loaded with a heading that matches the link"
+      - "The <NAV_ITEM_2> page loaded with a heading that matches the link"
